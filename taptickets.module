@@ -1,0 +1,480 @@
+<?php
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for the onthisdate module
+*/
+function taptickets_perm() {
+  return array('access taptickets content');
+} // function onthisdate_perm()
+
+/**
+ * Implementation of hook_block().
+ * @param string $op one of "list", "view", "save" and "configure"
+ * @param integer $delta code to identify the block
+ * @param array $edit only for "save" operation
+*/
+function taptickets_block($op = 'list', $delta = 0, $edit = array()) {
+    
+      // YOUR BLOCK GENERATION CODE GOES HERE
+
+}
+// function onthisdate_block
+
+function taptickets_create_product($data) {
+        require_once 'modules/node/node.pages.inc'; // Required for node_object_prepare();
+	$node = new stdClass();
+	$node->type = 'product';
+	node_object_prepare($node);
+	drupal_execute('product_node_form', $values, $node);
+
+}
+
+
+function createAttributeOption($data, $save =TRUE) {
+  $basearray = array(
+    'name' => "", 
+    'cost' => 0, 
+    'price' => 0, 
+    'weight' => 0, 
+    'ordering' => 0,
+  );
+  $option =  array_merge($basearray, $data);
+  $option = (object) $option;
+
+  if ($save) {
+    uc_attribute_option_save($option);
+  }
+  return $option;
+}
+
+function createAttribute($data, $save =TRUE)  {
+	//print 'in the attribute';
+	//print_r($data);
+	$basearray = array(
+	   'name' => 'Auto-Generated Prices', 
+	   'label' => 'Type of Ticket',  
+	   'description' => '',  
+	   'required' => 1, 
+	   'display' => 1, 
+	   'ordering' => 0,
+	);
+  
+  $attribute = array_merge($basearray, $data);
+  $attribute = (object) $attribute;
+
+  if ($save) {
+    uc_attribute_save($attribute);
+  }
+  return $attribute;
+}
+
+
+
+
+
+
+
+function taptickets_form_alter(&$form, $form_state, $form_id) {
+	
+	switch($form_id) {  
+		case 'show_node_form': // the value we stole from the rendered form  
+			// your customizations go here
+/*			$form['Reset Tickets'] = array(
+				'#title' => t('Reset Tickets'),
+				'#type' => 'fieldset',
+				'#collapsible' => TRUE, 
+				'#collapsed' => TRUE, 
+				'#access' => user_access('administer content types'), 
+				'#weight' => 30,
+			);
+			$form['Reset Tickets']['reset_checkbox'] = array(
+				'#type' => 'checkbox',
+				'#title' => 'Reset all the tickets',
+				'#description' => 'Do no select this unless you know what you are doing.  Do not select this during ticket sales!',
+				'#access' => user_access('administer content types'), 
+			);
+			unset($form['Reset Tickets']['reset_checkbox']['#value']);
+			
+*/			$form['flag']['#type'] = 'hidden';
+			$form['menu']['#type'] = 'hidden';
+			$form['taxonomy']['#type'] = 'hidden';
+			$form['log']['#type'] = 'hidden';
+			$form['author']['#type'] = 'hidden';
+			$form['comment_settings']['#type'] = 'hidden';
+			//$form['options']['#type'] = 'hidden';    
+			$form['path']['#type'] = 'hidden';
+			
+		break;  
+	}
+	
+	
+}
+
+
+
+
+
+
+function create_new_ticket($SKU, $priceadult, $pricesenjnr) {
+    // $sku enters here in the form of S##__N##_P##_Se@##.  Which means Season, Node (of show), Performance #, and Seat #
+    // Each show night gets $500 General Admin Tickets of type SeGAA, SeGAJ, SeGAS for Adult Junior, Senior, and 100 of SeGAM, SeGAP, SeGAC for Member, Press, and Comp.
+	
+	module_load_include('inc', 'node', 'node.pages');
+  	
+  	global $user;
+	
+	
+	
+/*
+	
+	//Checks to make sure tickets have not already been created for this show
+	$result_rows = db_query("SELECT * FROM {uc_products} WHERE model LIKE '%".$SKU."'");
+    if ($result_rows->num_rows > 0){
+		//print '</br>There is already a ticket named '.$SKU;
+		$output = null;
+	}
+        
+*/        
+        	
+     
+	//The rest of this function will load and generate the ticket as standard.
+//	else{
+		print 'I am about to create a ticket named '.$SKU.'</br>';	  
+		$node = new stdClass();
+		$node->type = 'ticket';
+		node_object_prepare($node); // This sets up all the default node fields so we don't accidentally leave something off.
+	  
+		// Copy over all the existing settings from Drupal 5.
+		$node->uid = 1;
+		$node->status = 1;
+		$node->title = 'Ticket_'.$SKU;
+		$node->body = '';
+		$node->model = $SKU;	  // the SKU is a required field, so I generated a SKU based on the node title
+		
+		// Set Ubercart variables
+		$node->list_price = 0;
+		$node->cost = 0;
+		$node->sell_price = 0;
+		$node->default_qty = 1;
+		$node->pkg_qty = 1;
+		$node->name = $user->name;
+		$node->op = t('Save');
+		
+		//Are Prices unique?
+		//SQL aids where name = adult and price = price_adult
+		
+		$oidcount = 0;
+		$attr_search_results = db_query("
+			SELECT * FROM {uc_attribute_options} AS a
+			INNER JOIN {uc_attribute_options} AS o
+			ON o.aid =a.aid
+			WHERE a.name = 'Adult'
+				AND a.price = ".$priceadult."
+				AND o.price = ".$pricesenjnr."
+				AND o.name = 'Junior'");
+		if ($attr_search_results->num_rows >0) {
+			//print '</ br><br /> Found a matching aid & oid with $'.$priceadult.' and $'.$pricesenjnr.'</ br><br />';
+			$attr_search_result = db_fetch_object($attr_search_results);
+			$attribute = uc_attribute_load($attr_search_result->aid);
+			$options = $attribute->options;
+		}else{
+			//print 'No Matching attributes.  </ br><br />';
+			$attr_data = array(
+				'name' => "Auto-generated Prices", 
+				'label' => "Type of Ticket", 
+				'description' => "", 
+				'required' => 1, 
+				'display' => 1, 
+				'ordering' => 0);
+			$attr_new = createAttribute($attr_data, TRUE);
+			createAttributeOption(array('aid'=>$attr_new->aid, 'price'=>$priceadult, 'name'=>'Adult'), TRUE);
+			createAttributeOption(array('aid'=>$attr_new->aid, 'price'=>$pricesenjnr, 'name'=>'Senior'), TRUE);
+			createAttributeOption(array('aid'=>$attr_new->aid, 'price'=>$pricesenjnr, 'name'=>'Junior'), TRUE);
+			createAttributeOption(array('aid'=>$attr_new->aid, 'price'=>0, 'name'=>'Passbook'), TRUE);
+			$attribute = uc_attribute_load($attr_new->aid);
+			$options = $attribute->options;
+        	}
+
+		  
+	   	// This changes the cost and sell_price of the BOX OFFICE tickets only.
+		if (substr($SKU, -3) == "GAA" ){
+			$node->list_price = $priceadult;
+			$node->cost = $priceadult;
+			$node->sell_price = $priceadult;
+		}	
+		if (substr($SKU, -3) == "GAS" ){
+			$node->list_price = $pricesenjnr;
+			$node->cost = $pricesenjnr;
+			$node->sell_price = $pricesenjnr;
+		}
+		if (substr($SKU, -3) == "GAJ" ){
+			$node->list_price = $pricesenjnr;
+			$node->cost = $pricesenjnr;
+			$node->sell_price = $pricesenjnr;
+		}
+		node_save($node);  // This will update the $node object with the $node->nid which is important for the next step.
+		
+		//updates the stock list to have an entry
+		db_query("INSERT INTO `uc_product_stock`(`sku`, `nid`, `active`, `stock`, `threshold`)
+			   VALUES ('".$SKU."',".$node->nid.",1,0,0)");
+		
+			
+		//******** UPDATE THE STOCK uc_product_stock **********//
+				
+				
+            	//print_r($attribute);
+         	//$attirbute->default_option = 1;
+			
+		uc_attribute_subject_save($attribute,'product', $node->nid);
+            	//print_r($node);
+            	//db_query("UPDATE {uc_product_attributes} SET default_option = ".$aid." WHERE nid = ".$node->nid);
+			
+		foreach ($attribute->options as $option){
+			uc_attribute_subject_option_save($option, 'product', $node->nid);
+		}
+//	}
+
+	// if there were any validation errors, drupal_execute will return them, then you have a chance to do something
+	if ($errors){
+	    foreach($errors as $key=>$value){
+			$output = '<p style= "color: red;"> Error:  - '.$key.',  - '.$value.'</p>';
+	    }
+	}
+	else{
+		$output = null;
+	} 
+	return $output;
+}
+
+
+
+
+
+
+
+
+
+
+function taptickets_nodeapi(&$node, $op, $teaser, $page) {
+  switch ($op) {
+    case 'validate':
+    break;
+    case 'load':
+    break;
+    case 'insert':         
+    break;
+/*   case 'update':
+*/	
+		if (($node->reset_checkbox == TRUE) && ($node->type === 'show')){
+			//Uncomment to reset all the tickets
+			$tempSKU = '-N'.$node->nid.'-P';
+			$result = db_query("SELECT nid FROM {uc_products} WHERE model LIKE '%".$tempSKU."%'");
+			while ($row = db_fetch_object($result)){
+				node_delete($row->nid);   
+				$deleted_count+=1;
+				print '</br>You just deleted: '.$tempSKU;
+			}
+						
+			//simple debug message so we can see what had been deleted. 
+			drupal_set_message($deleted_count." Tickets have been deleted from Product database.  Order history remains intact."); 	
+		}
+		
+        if($node->type === 'show'){
+						
+            print '<h3><a href="https://www.thearlingtonplayers.org/drupal-6.20/node/'.$node->nid.'/edit">Click here to return to node editing page.</a></h1>';
+			print '</br><h4>The following lines will show you what tickets were created (if any) as a result of updating this show.</h4>';
+					  
+			/* generate the seat array from the body of the selected venue*/
+            $nid = $node->field_venue[0][nid];
+            $venue = node_load($nid);
+			$body = $venue->body;
+	        $seatarray = array();
+            $bodyarray = explode(",",$body);
+            $x = 0;
+					  
+			// This counts the number of performances  
+            $PerfCount = count($node->field_perfs);
+					
+					
+					
+					
+					
+					
+					
+            //************* NOT FOR PRODUCTION  ******************
+					//THIS IS WHERE YOU LIMITED THE TICKETS FOR EACH NIGHT TO TEST THE NODEAPI FUNCTION
+					// while($x<=4)
+            //************* NOT FOR PRODUCTION  ******************
+
+					
+					
+					
+            if($node->field_venue[0][nid] != 2389){   //2389 is the NID for the General Admission Venue Node.
+				while($x<=count($bodyarray)){
+					$key = trim($bodyarray[$x]);
+					$value = strtolower(trim($bodyarray[$x+1]));
+					$seatarray[$key]=$key;
+					$x++;
+					$x++;
+            	}
+	      	       	      
+                //For each performance, this generates an SKU based off of the seat array (in your venue), the show node, the season, and the Performance 
+            	for($i=1; $i<=$PerfCount; $i++){
+                	$tempSKU = 'S'.(substr($node->field_season[0][value],9,2)).'-N'.$node->nid.'-P'.$i.'-Se';
+			//Finds out if ticket has already been made	
+			foreach($seatarray as &$seat){
+				$result_rows = db_query("SELECT * FROM {uc_products} WHERE model LIKE '%".$tempSKU.$seat."'");
+				$ticketcounter=0;
+				//If there is no ticket, then create the ticket.
+				if ($result_rows->num_rows > 0){
+				}else{
+					create_new_ticket($tempSKU.$seat, $node->field_price_adult[0][value], $node->field_price_snrjnr[0][value]);
+					uc_stock_adjust($tempSKU.$seat, -(uc_stock_level($tempSKU.$seat)));  // Zero out the stock regardless.
+					uc_stock_adjust($tempSKU.$seat, 1);  // Make the stock 1.
+					$ticketcounter++;
+                		}
+			}
+			if ($ticketcounter <=0){
+				print '</br>No tickets were created for Performance '.$i;
+			}
+                }
+				
+				
+				//THE FOLLOWING CODE FINDS TICKETS THAT WERE CREATED WITHOUT STOCK AND ADDS STOCK
+									
+					//create array of skus where ticket has been sold.
+					$trimSKU = '%N'.$node->nid.'%';
+					//print $trimSKU;
+					
+					$sold_array = array();
+					$result = db_query("SELECT model
+											FROM {uc_order_products}
+											WHERE model LIKE '%s'
+												AND model NOT LIKE '%GA%'
+											", $trimSKU);
+					while($row = db_fetch_object($result)){
+						$sold_array[]=$row->model;
+					}
+					//print_r($sold_array);
+					
+					$nostock_array = array();
+					$result = db_query("SELECT sku
+											FROM {uc_product_stock}
+											WHERE sku LIKE '%s'
+												AND sku NOT LIKE '%GA%'
+												AND stock != 1
+											", $trimSKU);
+					while($row = db_fetch_object($result)){
+						$nostock_array[]=$row->sku;
+					}
+					print '<pre>';
+					$leftover_array = array_diff($nostock_array,$sold_array);
+					//print_r(array_merge(array_diff($sold_array, $nostock_array),array_diff($nostock_array, $sold_array)));
+					print '</pre>';
+					foreach($leftover_array as $sku){
+							uc_stock_adjust($sku, 1);  // Make the stock 1.
+					}
+				
+				
+				
+				
+				
+				
+                // Each show night gets 100 General Admin Tickets of type SeGAA, SeGAJ, SeGAS for Adult Junior, Senior for the Box Office.
+                // General Admin shows also get GA_Online tickets set at the tix_nighttotal amount set on the Edit Show screen.  
+                // Non General Admin shows will get a stock of 1 added when each ticket is created.  See above.
+					
+				for($i=1; $i<=$PerfCount; $i++){
+						
+					//This creates Online tickets that conform to the Ubercart Attributes setup.
+					$tempSKU = 'S'.(substr($node->field_season[0][value],9,2)).'-N'.$node->nid.'-P'.$i.'-Se';
+					$seat = 'GA_Online';
+			
+					//Finds out if ticket has already been made	
+					$result_rows = db_query("SELECT * FROM {uc_products} WHERE model LIKE '%".$tempSKU.$seat."'");
+					if ($result_rows->num_rows > 0){
+						//print '</br>There is already a ticket named '.$tempSKU.$seat;
+					}else{
+						print $tempSKU.$seat;
+						//print '  The Stock level is '.uc_stock_level($tempSKU.$seat).'<br /></ br>';
+						//if the ticket isn't there, create one
+						create_new_ticket($tempSKU.$seat, $node->field_price_adult[0][value], $node->field_price_snrjnr[0][value]);
+						//adjust the stock to be the total needed
+						uc_stock_adjust($tempSKU.$seat, -(uc_stock_level($tempSKU.$seat)));
+						uc_stock_adjust($tempSKU.$seat, $node->field_tix_nighttotal[0][value]);
+						//print '  The Stock has been set to '.$node->field_tix_nighttotal[0][value];
+						//print '  The Stock level is now'.uc_stock_level($tempSKU.$seat);
+					}
+						
+				    //This creates Adult, Junior, Senior tickets that are accessible at the Box Office
+					$tempSKU = 'S'.(substr($node->field_season[0][value],9,2)).'-N'.$node->nid.'-P'.$i.'-Se';
+					$seat = 'GAA';
+					$result_rows = db_query("SELECT * FROM {uc_products} WHERE model LIKE '%".$tempSKU.$seat."'");
+					if ($result_rows->num_rows > 0){
+						//print '</br>There is already a ticket named '.$tempSKU.$seat;
+					}else{
+						create_new_ticket($tempSKU.$seat, $node->field_price_adult[0][value], $node->field_price_snrjnr[0][value]);
+					    uc_stock_adjust($tempSKU.$seat, -(uc_stock_level($tempSKU.$seat)));
+						uc_stock_adjust($tempSKU.$seat, $node->field_tix_nighttotal[0][value]);
+					}
+						
+			        $tempSKU = 'S'.(substr($node->field_season[0][value],9,2)).'-N'.$node->nid.'-P'.$i.'-Se';
+			        $seat = 'GAJ';
+					$result_rows = db_query("SELECT * FROM {uc_products} WHERE model LIKE '%".$tempSKU.$seat."'");
+					if ($result_rows->num_rows > 0){
+						//print '</br>There is already a ticket named '.$tempSKU.$seat;
+					}else{
+						create_new_ticket($tempSKU.$seat, $node->field_price_adult[0][value], $node->field_price_snrjnr[0][value]);
+					    uc_stock_adjust($tempSKU.$seat, -(uc_stock_level($tempSKU.$seat)));
+						uc_stock_adjust($tempSKU.$seat, $node->field_tix_nighttotal[0][value]);
+					}
+						
+			        $tempSKU = 'S'.(substr($node->field_season[0][value],9,2)).'-N'.$node->nid.'-P'.$i.'-Se';
+			        $seat = 'GAS';
+					$result_rows = db_query("SELECT * FROM {uc_products} WHERE model LIKE '%".$tempSKU.$seat."'");
+					if ($result_rows->num_rows > 0){
+						//print '</br>There is already a ticket named '.$tempSKU.$seat;
+					}else{
+						create_new_ticket($tempSKU.$seat, $node->field_price_adult[0][value], $node->field_price_snrjnr[0][value]);
+					    uc_stock_adjust($tempSKU.$seat, -(uc_stock_level($tempSKU.$seat)));
+						uc_stock_adjust($tempSKU.$seat, $node->field_tix_nighttotal[0][value]);
+					}
+				}
+			}
+		
+		
+
+		
+		
+
+	}	
+
+/*    break;
+*/    
+    case 'delete':
+/*        if($node->type === 'show'){
+		$tempSKU = '-N'.$node->nid.'-P';
+  	        $result = db_query("SELECT nid FROM {uc_products} WHERE model LIKE '%".$tempSKU."%'");
+            while ($row = db_fetch_object($result)){
+                node_delete($row->nid);   
+                $deleted_count+=1; 
+            } 
+            //simple debug message so we can see what had been deleted. 
+            drupal_set_message($deleted_count." Tickets have been deleted from Product database.  Order history remains intact."); 
+       }
+*/    break;
+    
+    case 'delete revision':
+    break;
+
+    case 'view':
+    break;
+  }
+}
+/*
+function taptickets_uc_invoice_templates(){
+  return array('admin', 'customer', 'customer2');
+}
+*/
+?>
